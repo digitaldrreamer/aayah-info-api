@@ -3162,26 +3162,4 @@ const hisnul_muslim = [
     ...selected_dua
 ]
 
-const categories = [
-    {
-        "name": "Morning Dhikr",
-        "slug": "morning-dhikr"
-    },
-    {
-        "name": "Evening Dhikr",
-        "slug": "evening_dhikr"
-    },
-    {
-        "name": "Daily Dua",
-        "slug": "daily_dua"
-    },
-    {
-        "name": "Selected Dua",
-        "slug": "selected-dua"
-    },
-    {
-        "name": "Dhikr After Salah",
-        "slug": "dhikr_after_salah"
-    }
-]
-
+export { hisnul_muslim }

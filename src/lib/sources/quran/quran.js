@@ -1519,3 +1519,5 @@ const getQuranInfo = () => {
         }]
     }
 }
+
+export { getJuz, getPage, getRuku, getVerse, getChapter, getQuranInfo }

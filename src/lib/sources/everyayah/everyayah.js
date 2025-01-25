@@ -1,4 +1,3 @@
-import {fetchEveryAyah} from "$lib/sources/requests/requests.js";
 
 const reciters = [
     {
@@ -362,3 +361,4 @@ const getPageAudio = async (pageNum, reciterId) => {
     return `https://everyayah.com/data/${reciterId}/PageMp3s/Page${pageNumber}.mp3`
 }
 
+export { getPageAudio, getVerseAudio }

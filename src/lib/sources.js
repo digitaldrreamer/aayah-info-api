@@ -5,7 +5,9 @@ export const sources = {
 }
 
 
-const getSurah = ({ surahNum, info, audioId, arabic, english, tafsir }) => {}
+const getSurah = ({ surahNum, info, audioId, arabic, english, tafsir }) => {
+    const surahText = await getChapter
+}
 
 const getPage = ({ pageNum, info, audioId, arabic, english, tafsir }) => {}
 
