@@ -3162,4 +3162,6 @@ const hisnul_muslim = [
     ...selected_dua
 ]
 
+const getDua = (index) => hisnul_muslim[index]
+
 export { hisnul_muslim }

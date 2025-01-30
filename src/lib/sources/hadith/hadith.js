@@ -1,5 +1,6 @@
 const hadithBooks = {
     "abudawud": {
+        "id": "abudawud",
         "name": "Sunan Abu Dawud",
         "collection": [
             {
@@ -336,6 +337,7 @@ const hadithBooks = {
         }
     },
     "bukhari": {
+        "id": "bukhari",
         "name": "Sahih al Bukhari",
         "collection": [
             {
@@ -1050,6 +1052,7 @@ const hadithBooks = {
         }
     },
     "dehlawi": {
+        "id": "dehlawi",
         "name": "Forty Hadith of Shah Waliullah Dehlawi",
         "collection": [
             {
@@ -1088,6 +1091,7 @@ const hadithBooks = {
         }
     },
     "ibnmajah": {
+        "id": "ibnmajah",
         "name": "Sunan Ibn Majah",
         "collection": [
             {
@@ -1382,6 +1386,7 @@ const hadithBooks = {
         }
     },
     "malik": {
+        "id": "malik",
         "name": "Muwatta Malik",
         "collection": [
             {
@@ -1844,6 +1849,7 @@ const hadithBooks = {
         }
     },
     "muslim": {
+        "id": "muslim",
         "name": "Sahih Muslim",
         "collection": [
             {
@@ -2271,6 +2277,7 @@ const hadithBooks = {
         }
     },
     "nasai": {
+        "id": "nasai",
         "name": "Sunan an Nasai",
         "collection": [
             {
@@ -2663,6 +2670,7 @@ const hadithBooks = {
         }
     },
     "nawawi": {
+        "id": "nawawi",
         "name": "Forty Hadith of an-Nawawi",
         "collection": [
             {
@@ -2705,6 +2713,7 @@ const hadithBooks = {
         }
     },
     "qudsi": {
+        "id": "qudsi",
         "name": "Forty Hadith Qudsi",
         "collection": [
             {
@@ -2747,6 +2756,7 @@ const hadithBooks = {
         }
     },
     "tirmidhi": {
+        "id": "tirmidhi",
         "name": "Jami At Tirmidhi",
         "collection": [
             {
@@ -3137,10 +3147,40 @@ const getHadithBook = (bookSlug) => {
  * @param {'ar' | 'en'} lang
  * @returns {`https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/${string}-${string}/${number}.json`}
  */
-const hadithUrl = (bookSlug, hadithNum, lang = 'en') => `https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/${lang === en ? 'eng' : 'ara'}-${bookName}/${hadithNum}.json`
+const hadithUrl = (bookSlug, hadithNum, lang = 'en') => `https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/${['en', 'eng'].includes(lang) ? 'eng' : 'ara'}-${bookSlug}/${hadithNum}.json`
 
 const getHadithBySection = async (bookSlug, sectionNum, lang) => {
     const sections = hadithBooks[bookSlug].sections
+    if (Number(sectionNum) > (Object.keys(sections).length - 1)) return null
+    const section = sections[`${sectionNum}`]
+    const sectionInfo = hadithBooks[bookSlug].section_details[`${sectionNum}`]
+    const firstHadith = sectionInfo.hadithnumber_first;
+    const lastHadith = sectionInfo.hadithnumber_last;
+    return {
+        from: firstHadith,
+        to: lastHadith
+    }
+}
+
+const getHadith = async (bookSlug, sectionNum, hadithNum, lang) => {
+    let response = {};
+    if (!lang || ["en", "eng"].includes(lang)) {
+        const req = await fetch(hadithUrl(bookSlug, hadithNum, 'en'))
+        const res = await req.json()
+        response = res
+        res.text = {
+            en: res.text
+        }
+    }
+    if (!lang || ["ar", "ara"].includes(lang)) {
+        const req = await fetch(hadithUrl(bookSlug, hadithNum, 'ar'))
+        const res = await req.json()
+        res.text = {
+            ar: res.text
+        }
+    }
+
+    return response
 }
 
 // from hadith-json - https://github.com/fawazahmed0/hadith-api
@@ -3160,3 +3200,5 @@ const getHadithBySection = async (bookSlug, sectionNum, lang) => {
 // Al-Silsila Sahiha
 // Musnad Ahmad
 // Mishkat Al-Masabih
+
+export { getHadith, getHadithBySection, getHadithBook }
