@@ -3164,4 +3164,4 @@ const hisnul_muslim = [
 
 const getDua = (index) => hisnul_muslim[index]
 
-export { hisnul_muslim }
+export { hisnul_muslim, getDua }
