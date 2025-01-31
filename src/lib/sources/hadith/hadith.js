@@ -3201,4 +3201,4 @@ const getHadith = async (bookSlug, sectionNum, hadithNum, lang) => {
 // Musnad Ahmad
 // Mishkat Al-Masabih
 
-export { getHadith, getHadithBySection, getHadithBook }
+export { hadithBooks, getHadith, getHadithBySection, getHadithBook }
