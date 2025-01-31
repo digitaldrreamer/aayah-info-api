@@ -8,7 +8,7 @@ export const GET = async ({ url }) => {
         // check params and set defaults or return error responses if applicable
         const index = url.searchParams.get('index')
         if (!index) throw new Error('Index not passed to hisnul-muslim endpoint')
-        if (isNaN(Number(index))) throw new Error('Index passed tohisnul-muslim must be parsable to a valid number')
+        if (isNaN(Number(index))) throw new Error('Index passed to hisnul-muslim must be parsable to a valid number')
         const dua = await getDua(Number(index))
         if (!dua) {
             return json({
