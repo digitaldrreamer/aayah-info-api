@@ -1,3 +1,6 @@
+import logger from "$lib/logger.js";
+import * as Sentry from '@sentry/sveltekit'
+
 const hadithBooks = {
     "abudawud": {
         "id": "abudawud",
@@ -3149,11 +3152,11 @@ const getHadithBook = (bookSlug) => {
  */
 const hadithUrl = (bookSlug, hadithNum, lang = 'en') => `https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/${['en', 'eng'].includes(lang) ? 'eng' : 'ara'}-${bookSlug}/${hadithNum}.json`
 
-const getHadithBySection = async (bookSlug, sectionNum, lang) => {
+const getHadithBySection = (bookSlug, sectionNum, lang) => {
     const sections = hadithBooks[bookSlug].sections
     if (Number(sectionNum) > (Object.keys(sections).length - 1)) return null
-    const section = sections[`${sectionNum}`]
-    const sectionInfo = hadithBooks[bookSlug].section_details[`${sectionNum}`]
+    const section = sections[`${Number(sectionNum) + 1}`]
+    const sectionInfo = hadithBooks[bookSlug].section_details[`${Number(sectionNum) + 1}`]
     const firstHadith = sectionInfo.hadithnumber_first;
     const lastHadith = sectionInfo.hadithnumber_last;
     return {
@@ -3164,24 +3167,63 @@ const getHadithBySection = async (bookSlug, sectionNum, lang) => {
 
 const getHadith = async (bookSlug, sectionNum, hadithNum, lang) => {
     let response = {};
+    logger.start("Getting Hadith...");
+
+    // Handle English fetch
     if (!lang || ["en", "eng"].includes(lang)) {
-        const req = await fetch(hadithUrl(bookSlug, hadithNum, 'en'))
-        const res = await req.json()
-        response = res
-        res.text = {
-            en: res.text
-        }
-    }
-    if (!lang || ["ar", "ara"].includes(lang)) {
-        const req = await fetch(hadithUrl(bookSlug, hadithNum, 'ar'))
-        const res = await req.json()
-        res.text = {
-            ar: res.text
-        }
+        logger.info("English...");
+        const req = await fetch(hadithUrl(bookSlug, hadithNum, 'en'));
+        logger.debug("English URL", hadithUrl(bookSlug, hadithNum, 'en'));
+        const res = await req.json();
+        logger.success("English result", res.sections);
+
+        // Create a new object instead of modifying the response directly
+        response = {
+            ...res,
+            hadiths: [{
+                ...res.hadiths[0],
+                text: {
+                    en: res.hadiths[0].text
+                },
+                reference: {
+                    book: bookSlug,
+                    section: sectionNum,
+                    hadith: hadithNum
+                }
+            }],
+
+        };
+        logger.end("English final", response);
     }
 
-    return response
-}
+    // Handle Arabic fetch
+    if (!lang || ["ar", "ara"].includes(lang)) {
+        logger.info("Arabic...");
+        const req = await fetch(hadithUrl(bookSlug, hadithNum, 'ar'));
+        const res = await req.json();
+        logger.success("Arabic result", res);
+
+        // If we already have a response (from English), merge the Arabic text
+        if (response.hadiths) {
+            response.hadiths[0].text.ar = res.hadiths[0].text;
+        } else {
+            // If this is Arabic only, create new structure
+            response = {
+                ...res,
+                hadiths: [{
+                    ...res.hadiths[0],
+                    text: {
+                        ar: res.hadiths[0].text
+                    }
+                }]
+            };
+        }
+        logger.end("Arabic final", response);
+    }
+
+    return response;
+};
+
 
 // from hadith-json - https://github.com/fawazahmed0/hadith-api
 // Sunan Abu Dawud
@@ -3201,4 +3243,4 @@ const getHadith = async (bookSlug, sectionNum, hadithNum, lang) => {
 // Musnad Ahmad
 // Mishkat Al-Masabih
 
-export { getHadith, getHadithBySection, getHadithBook }
+export { hadithBooks, getHadith, getHadithBySection, getHadithBook }
