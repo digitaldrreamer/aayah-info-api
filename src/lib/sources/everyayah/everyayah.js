@@ -327,9 +327,9 @@ const reciters = [
  * @param {number} surahNum
  * @param {number} verseNum
  * @param {string} reciterId
- * @returns {Promise<string | null>} Audio URL
+ * @returns {string | null} Audio URL
  */
-const getVerseAudio = async (surahNum, verseNum, reciterId) => {
+const getVerseAudio = (surahNum, verseNum, reciterId) => {
     let surahNumber;
     const surahNumLength = `${surahNum}`.length
     if (surahNumLength === 1) surahNumber = `00${surahNum}`
@@ -350,9 +350,9 @@ const getVerseAudio = async (surahNum, verseNum, reciterId) => {
  *
  * @param {number} pageNum
  * @param {string} reciterId
- * @returns {Promise<string | null>} Audio URL
+ * @returns {string | null} Audio URL
  */
-const getPageAudio = async (pageNum, reciterId) => {
+const getPageAudio = (pageNum, reciterId) => {
     let pageNumber;
     const pageNumLength = `${pageNum}`.length
     if (pageNumLength === 1) pageNumber = `00${pageNum}`
@@ -361,4 +361,4 @@ const getPageAudio = async (pageNum, reciterId) => {
     return `https://everyayah.com/data/${reciterId}/PageMp3s/Page${pageNumber}.mp3`
 }
 
-export { getPageAudio, getVerseAudio }
+export { getPageAudio, getVerseAudio, reciters }

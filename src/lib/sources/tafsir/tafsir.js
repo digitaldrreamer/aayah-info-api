@@ -230,4 +230,4 @@ async function getVerseTafsir (tafsirEditionId, surahNum, verseNum) {
     return res ?? null
 }
 
-export { getVerseTafsir, getSurahTafsir }
+export { getVerseTafsir, getSurahTafsir, tafsirEditions }

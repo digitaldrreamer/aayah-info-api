@@ -1520,4 +1520,4 @@ const getQuranInfo = () => {
     }
 }
 
-export { getJuz, getPage, getRuku, getVerse, getChapter, getQuranInfo }
+export { getJuz, getPage, getRuku, getVerse, getChapter, getQuranInfo, quranEditions }
