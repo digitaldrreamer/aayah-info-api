@@ -4,7 +4,10 @@ import * as Sentry from '@sentry/sveltekit'
 export const GET = async ({ url }) => {
     try {
         // check query params and set defaults or return error if applicable
-
+        //dua
+        //quran
+        //hadith
+        //tafsir
 
         // fetch necessary data
 
