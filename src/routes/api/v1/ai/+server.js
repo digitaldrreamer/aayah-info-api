@@ -2,6 +2,7 @@
 import gemini from "$lib/gemini.server.js";
 import Gemini from "gemini-ai";
 import logger from '$lib/logger.js'
+import {json} from "@sveltejs/kit";
 
 export async function POST({ request }) {
     try {
@@ -14,10 +15,10 @@ export async function POST({ request }) {
         const audioFile = formData.get('audio');
         if (!audioFile) {
             logger.error('No audio file provided', { status: 400 });
-            return {
+            return json({
                 status: 400,
                 body: { error: 'No audio file provided' },
-            };
+            });
         }
 
         logger.info('Audio file found, converting to buffer');
@@ -61,10 +62,10 @@ export async function POST({ request }) {
         const transcription = await transcribe();
         logger.success('Transcription successful', transcription);
 
-        return {
+        return json({
             status: 200,
-            body: { message: 'File uploaded and processed successfully', transcription },
-        };
+                body: { message: 'File uploaded and processed successfully', transcription },
+        });
     } catch (error) {
         logger.error('Error uploading file', error); // Log the error
         return {
