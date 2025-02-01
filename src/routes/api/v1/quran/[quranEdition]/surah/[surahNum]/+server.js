@@ -46,6 +46,12 @@ export const GET = async ({ params, url }) => {
                     data: {
                         verses: processedVerses
                     }
+                }, {
+                    headers: {
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                        'Access-Control-Allow-Headers': 'Content-Type'
+                    }
                 });
             } catch (error) {
                 console.error('Surah processing error:', error);
