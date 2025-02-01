@@ -36,6 +36,12 @@ export const GET = async ({ params, url }) => {
                 tafsir: verseTafsir,
                 audioUrl
             }
+        }, {
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type'
+            }
         })
     } catch (e) {
         // report to sentry

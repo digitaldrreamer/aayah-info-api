@@ -25,6 +25,12 @@ export const GET = async ({ url }) => {
             data: {
                 dua
             }
+        }, {
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type'
+            }
         })
     } catch (e) {
         Sentry.captureException(e)
