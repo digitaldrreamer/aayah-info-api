@@ -4,6 +4,7 @@ import {getChapter} from "$lib/sources/quran/quran.js";
 import {getVerseAudio} from "$lib/sources/everyayah/everyayah.js";
 import {getVerseTafsir} from "$lib/sources/tafsir/tafsir.js";
 import logger from "$lib/logger.js";
+import {redis} from "$lib/redis.server.js";
 
 export const GET = async ({ params, url }) => {
     try {
@@ -25,6 +26,17 @@ export const GET = async ({ params, url }) => {
                     throw new Error('Invalid surah data structure');
                 }
 
+                const cache = await redis.get(`surah:${quranEdition}:${surahNum}`)
+                if (cache) {
+                    return json({
+                        success: true,
+                        message: "Surah Retrieved successfully",
+                        data: {
+                            verses: JSON.parse(cache)
+                        }
+                    })
+                }
+
                 // Process verses with Promise.all
                 const processedVerses = await Promise.all(
                     surah.chapter.map(async (verse) => {
@@ -40,17 +52,13 @@ export const GET = async ({ params, url }) => {
                     })
                 );
 
+                await redis.set(`surah:${quranEdition}:${surahNum}`, JSON.stringify(processedVerses))
+
                 return json({
                     success: true,
                     message: "Surah Retrieved successfully",
                     data: {
                         verses: processedVerses
-                    }
-                }, {
-                    headers: {
-                        'Access-Control-Allow-Origin': '*',
-                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                        'Access-Control-Allow-Headers': 'Content-Type'
                     }
                 });
             } catch (error) {

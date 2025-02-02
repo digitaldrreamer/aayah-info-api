@@ -1,51 +1,60 @@
-import {json} from "@sveltejs/kit";
+import { json } from "@sveltejs/kit";
 import * as Sentry from '@sentry/sveltekit'
-import {getHadithBySection} from "$lib/sources/hadith/hadith.js";
+import { getHadithBySection } from "$lib/sources/hadith/hadith.js";
+import { redis } from "$lib/redis.server.js";
 
 export const GET = async ({ url, params }) => {
     try {
-        // check query params and set defaults or return error if applicable
-        const { bookSlug, sectionNum } = params
+        // Check query params and set defaults or return error if applicable
+        const { bookSlug, sectionNum } = params;
 
+        // Try to fetch from cache
+        const cache = await redis.get(`hadith:${bookSlug}:${sectionNum}`);
+        if (cache) {
+            return json({
+                success: true,
+                message: "Hadith book section retrieved successfully",
+                data: {
+                    section: JSON.parse(cache)
+                }
+            });
+        }
 
-        // fetch necessary data
-        const hadithSectionInfo = getHadithBySection(bookSlug, sectionNum)
-        console.log(hadithSectionInfo)
-        // run checks or additional actions
+        // Fetch necessary data
+        const hadithSectionInfo = await getHadithBySection(bookSlug, sectionNum);  // Await the async function
+        console.log(hadithSectionInfo);
 
-        // return error conditionally
-        if (!hadithSectionInfo) return json({
-            error: true,
-            message: "Hadith Book Section not found"
-        }, {
-            status: 404
-        })
+        // Run checks or additional actions
+        if (!hadithSectionInfo) {
+            return json({
+                error: true,
+                message: "Hadith Book Section not found"
+            }, {
+                status: 404
+            });
+        }
 
+        // Cache the result for future requests
+        await redis.set(`hadith:${bookSlug}:${sectionNum}`, JSON.stringify(hadithSectionInfo));
 
-
-        // return success
+        // Return success response
         return json({
             success: true,
             message: "Hadith book section retrieved successfully",
             data: {
                 section: hadithSectionInfo
             }
-        }, {
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
-            }
-        })
+        });
     } catch (e) {
-        // report to sentry
-        Sentry.captureException(e)
+        // Report the error to Sentry
+        Sentry.captureException(e);
 
-        // return error 500
+        // Return error response
         return json({
             status: false,
             message: "Error: " + e?.message
-        })
-
+        }, {
+            status: 500
+        });
     }
-}
+};

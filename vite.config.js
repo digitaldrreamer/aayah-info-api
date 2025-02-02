@@ -3,10 +3,18 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-	plugins: [sentrySvelteKit({
-        sourceMapsUploadOptions: {
-            org: "goremote-africa",
-            project: "aayah-api"
+    plugins: [
+        sveltekit(),
+        sentrySvelteKit({
+            sourceMapsUploadOptions: {
+                org: "goremote-africa",
+                project: "aayah-api",
+            }
+        })
+    ],
+    build: {
+        rollupOptions: {
+            external: ['cheerio']  // Add cheerio as an external dependency
         }
-    }), sveltekit()]
+    }
 });

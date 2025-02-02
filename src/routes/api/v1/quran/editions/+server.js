@@ -1,11 +1,22 @@
 import {json} from "@sveltejs/kit";
 import * as Sentry from '@sentry/sveltekit'
 import {quranEditions} from "$lib/sources/quran/quran.js";
+import {redis} from "$lib/redis.server.js";
 
 export const GET = async ({ url }) => {
     try {
         // check query params and set defaults or return error if applicable
 
+        const cache = await redis.get(`quran:editions`)
+        if (cache) {
+            return json({
+                success: true,
+                message: "Quran editions retrieved successfully",
+                data: {
+                    editions: JSON.parse(cache)
+                }
+            })
+        }
 
 
         // fetch necessary data
@@ -14,18 +25,13 @@ export const GET = async ({ url }) => {
 
         // return error conditionally
 
+        await redis.set(`quran:editions`, JSON.stringify(quranEditions))
 
         // return success
         return json({
             success: true,
             data: {
                 editions: quranEditions
-            }
-        }, {
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
             }
         })
     } catch (e) {

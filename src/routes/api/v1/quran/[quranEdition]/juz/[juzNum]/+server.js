@@ -4,6 +4,7 @@ import { getJuz } from "$lib/sources/quran/quran.js";
 import { getVerseAudio } from "$lib/sources/everyayah/everyayah.js";
 import { getVerseTafsir } from "$lib/sources/tafsir/tafsir.js";
 import logger from "$lib/logger.js";
+import {redis} from "$lib/redis.server.js";
 
 export const GET = async ({ url, params }) => {
     try {
@@ -11,6 +12,17 @@ export const GET = async ({ url, params }) => {
         const { quranEdition, juzNum } = params;
         const audio = url.searchParams.get('audio') ?? false;
         const tafsir = url.searchParams.get('tafsir') ?? false;
+
+        const cache = await redis.get(`juz:${quranEdition}:${juzNum}`)
+        if (cache) {
+            return json({
+                success: true,
+                message: "Juz Retrieved successfully",
+                data: {
+                    juz: JSON.parse(cache)
+                }
+            })
+        }
 
         // Validate juz number
         if (!juzNum || isNaN(juzNum)) {
@@ -45,7 +57,9 @@ export const GET = async ({ url, params }) => {
                     tafsir: verseTafsir
                 };
             })
-        );
+        )
+
+        await redis.set(`juz:${quranEdition}:${juzNum}`, JSON.stringify(processedVerses))
 
         // Return success response
         return json({
@@ -57,12 +71,6 @@ export const GET = async ({ url, params }) => {
                     id: `juz:${juzNum}`,
                     verses: processedVerses
                 }
-            }
-        }, {
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
             }
         });
 

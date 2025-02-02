@@ -12,6 +12,7 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^4.0.0",
+		"@sveltejs/adapter-vercel": "^5.5.3",
 		"@sveltejs/kit": "^2.0.0",
 		"@sveltejs/vite-plugin-svelte": "^4.0.0",
 		"svelte": "^5.0.0",
@@ -21,7 +22,9 @@
 	},
 	"dependencies": {
 		"@sentry/sveltekit": "^8.52.1",
+		"cheerio": "^1.0.0",
 		"gemini-ai": "^2.2.1",
+		"ioredis": "^5.4.2",
 		"modern-diacritics": "^2.3.1",
 		"openai": "^4.82.0"
 	}
