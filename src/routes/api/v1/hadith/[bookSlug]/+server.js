@@ -1,12 +1,23 @@
 import {json} from "@sveltejs/kit";
 import * as Sentry from '@sentry/sveltekit'
 import {getHadithBook} from "$lib/sources/hadith/hadith.js";
+import {redis} from "$lib/redis.server.js";
 
 export const GET = async ({ url, params }) => {
     try {
         // check query params & path params and set defaults or return error if applicable
         const { bookSlug } = params
 
+        const cache = await redis.get(`hadith-book-${bookSlug}`)
+        if (cache) {
+            return json({
+                success: true,
+                message: "Hadith book retrieved successfully",
+                data: {
+                    book: JSON.parse(cache)
+                }
+            })
+        }
 
 
         // fetch necessary data
@@ -22,6 +33,8 @@ export const GET = async ({ url, params }) => {
             status: 404
         })
 
+        await redis.set(`hadith-book-${bookSlug}`, JSON.stringify(hadithBook))
+
 
         // return success
         return json({
@@ -29,12 +42,6 @@ export const GET = async ({ url, params }) => {
             message: "Hadith book retrieved successfully",
             data: {
                 book: hadithBook
-            }
-        }, {
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
             }
         })
     } catch (e) {

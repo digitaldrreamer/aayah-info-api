@@ -2,11 +2,23 @@ import {json} from "@sveltejs/kit";
 import * as Sentry from '@sentry/sveltekit'
 import {getPage} from "$lib/sources/quran/quran.js";
 import {getPageAudio, reciters as rec} from "$lib/sources/everyayah/everyayah.js";
+import {redis} from "$lib/redis.server.js";
 
 export const GET = async ({ url, params }) => {
     try {
         // check query params and set defaults or return error if applicable
         const quality = url.searchParams.get('quality')
+
+        const cache = await redis.get(`reciters:${quality}`)
+        if (cache) {
+            return json({
+                success: true,
+                message: "Reciters retrieved successfully",
+                data: {
+                    reciters: JSON.parse(cache)
+                }
+            })
+        }
 
         // fetch necessary data
         let reciters = rec
@@ -16,6 +28,7 @@ export const GET = async ({ url, params }) => {
 
         // return error conditionally
 
+        await redis.set(`reciters:${quality}`, JSON.stringify(reciters))
 
         // return success
         return json({
@@ -23,12 +36,6 @@ export const GET = async ({ url, params }) => {
             message: "Reciters retrieved successfully",
             data: {
                 reciters,
-            }
-        }, {
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
             }
         })
     } catch (e) {

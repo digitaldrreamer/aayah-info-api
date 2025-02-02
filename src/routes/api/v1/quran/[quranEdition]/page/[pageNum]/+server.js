@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/sveltekit'
 import {getPage} from "$lib/sources/quran/quran.js";
 import {getPageAudio, getVerseAudio} from "$lib/sources/everyayah/everyayah.js";
 import {getVerseTafsir} from "$lib/sources/tafsir/tafsir.js";
+import {redis} from "$lib/redis.server.js";
 
 export const GET = async ({ url, params }) => {
     try {
@@ -10,6 +11,17 @@ export const GET = async ({ url, params }) => {
         const { quranEdition, pageNum } = params
         const audio = url.searchParams.get('audio') ?? false
         const tafsir = url.searchParams.get('tafsir') ?? false
+
+        const cache = await redis.get(`page:${quranEdition}:${pageNum}`)
+        if (cache) {
+            return json({
+                success: true,
+                message: "Quran Page retrieved successfully",
+                data: {
+                    verses: JSON.parse(cache)
+                }
+            })
+        }
 
         // fetch necessary data
         const page = await getPage(quranEdition, pageNum)
@@ -31,6 +43,8 @@ export const GET = async ({ url, params }) => {
             })
         );
 
+        await redis.set(`page:${quranEdition}:${pageNum}`, JSON.stringify(processedVerses))
+
         // return success
         return json({
             success: true,
@@ -40,12 +54,6 @@ export const GET = async ({ url, params }) => {
                 label: "Page " + pageNum,
                 id: "page:" + pageNum,
                 audioUrl
-            }
-        }, {
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
             }
         })
     } catch (e) {
