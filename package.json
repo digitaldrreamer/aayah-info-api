@@ -21,6 +21,7 @@
 	},
 	"dependencies": {
 		"@sentry/sveltekit": "^8.52.1",
+		"cheerio": "^1.0.0",
 		"gemini-ai": "^2.2.1",
 		"ioredis": "^5.4.2",
 		"modern-diacritics": "^2.3.1",
