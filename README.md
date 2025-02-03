@@ -1,11 +1,13 @@
 [![wakatime](https://wakatime.com/badge/user/0adeced3-467a-4cc6-9433-a47106d2d8b7/project/058aacc1-3a9e-415f-b225-1e7e1c966e3b.svg)](https://wakatime.com/badge/user/0adeced3-467a-4cc6-9433-a47106d2d8b7/project/058aacc1-3a9e-415f-b225-1e7e1c966e3b)
 
-GIT Changelog: https://app.whatthediff.ai/changelog/An80viG
-API Docs: https://app.theneo.io/digitaldrreamer/aayah-info/aayah-api or https://api.aayah.info
-API Changelog: https://app.theneo.io/changelog/digitaldrreamer/aayah-info
+### GIT Changelog: https://app.whatthediff.ai/changelog/An80viG
+### API Docs: https://app.theneo.io/digitaldrreamer/aayah-info/aayah-api or https://api.aayah.info
+### API Changelog: https://app.theneo.io/changelog/digitaldrreamer/aayah-info
+
+### Frontend Repo: [https://github.com/digitaldrreamer/aayat-info/](https://github.com/digitaldrreamer/aayat-info/)
 
 
-API for aayah.info. see DOCS.md for API documentation. Or go to api.aayah.info for docs
+### API for aayah.info. see DOCS.md for API documentation. Or go to api.aayah.info for docs
 
 AI
 Use Gemini 1.5 PRO
