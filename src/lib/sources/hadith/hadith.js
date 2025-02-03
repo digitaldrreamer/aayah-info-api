@@ -3153,17 +3153,27 @@ const getHadithBook = (bookSlug) => {
 const hadithUrl = (bookSlug, hadithNum, lang = 'en') => `https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions/${['en', 'eng'].includes(lang) ? 'eng' : 'ara'}-${bookSlug}/${hadithNum}.json`
 
 const getHadithBySection = (bookSlug, sectionNum, lang) => {
-    const sections = hadithBooks[bookSlug].sections
-    if (Number(sectionNum) > (Object.keys(sections).length - 1)) return null
-    const section = sections[`${Number(sectionNum) + 1}`]
-    const sectionInfo = hadithBooks[bookSlug].section_details[`${Number(sectionNum) + 1}`]
-    const firstHadith = sectionInfo.hadithnumber_first;
-    const lastHadith = sectionInfo.hadithnumber_last;
-    return {
-        from: firstHadith,
-        to: lastHadith
+    const book = hadithBooks[bookSlug];
+
+    if (!book) {
+        return { error: true, message: "Hadith Book not found" };
     }
-}
+
+    const sectionDetails = book.section_details || {}; // Default to empty object
+
+    // Ensure section exists within valid range
+    if (!sectionDetails[sectionNum]) {
+        return { error: true, message: "Hadith Book Section not found" };
+    }
+
+    const sectionInfo = sectionDetails[sectionNum];
+
+    return {
+        error: false,
+        from: sectionInfo.hadithnumber_first || 0,
+        to: sectionInfo.hadithnumber_last || 0
+    };
+};
 
 const getHadith = async (bookSlug, sectionNum, hadithNum, lang) => {
     let response = {};
