@@ -1909,7 +1909,7 @@ const generateQuranUrls = (surahs, juzs) => {
     return urls;
 };
 
-export const GET = async () => {
+export const GET = async ({ fetch }) => {
     logger.start('Sitemap generation process');
     const startTime = performance.now();
 
