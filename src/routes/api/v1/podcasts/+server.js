@@ -8,7 +8,7 @@ export const GET = async () => {
         return json(JSON.parse(cache))
     }
     const podcasts = await getPodcasts()
-    await redis.set('podcasts', JSON.stringify(podcasts), 'EX', 60 * 60 * 24)
+    await redis.set('podcasts', JSON.stringify(podcasts))
     return json({
         ...podcasts
     })

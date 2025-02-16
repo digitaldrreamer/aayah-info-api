@@ -20,7 +20,7 @@ export const GET = async ({ url }) => {
 
         // fetch necessary data
         const books = hadithBooks
-        await redis.set('hadithBooks', JSON.stringify(books), 'EX', 60 * 60 * 24)
+        await redis.set('hadithBooks', JSON.stringify(books))
 
         // run checks or additional actions
 
