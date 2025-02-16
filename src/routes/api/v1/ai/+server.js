@@ -1,255 +1,270 @@
-// src/routes/api/upload/process/+server.js
+import { AssemblyAI } from 'assemblyai';
 import gemini from "$lib/gemini.server.js";
 import Gemini from "gemini-ai";
 import OpenAI from "openai";
-import { OPENAI_API_KEY } from "$env/static/private";
+import {
+    OPENAI_API_KEY,
+    ASSEMBLY_AI_KEY,
+    BLOB_READ_WRITE_TOKEN,
+    GLADIA_API_KEY
+} from "$env/static/private";
 import logger from '$lib/logger.js';
 import * as Sentry from "@sentry/sveltekit";
 import { json } from "@sveltejs/kit";
+import { put } from "@vercel/blob";
 
 const openai = new OpenAI({
     apiKey: OPENAI_API_KEY
 });
 
-// Schema definition for both Gemini and OpenAI
-const transcriptionSchema = {
-    type: Gemini.SchemaType.ARRAY,
-    items: {
-        type: Gemini.SchemaType.OBJECT,
-        required: ['surah', 'verse', 'confidence'],
-        properties: {
-            surah: {
-                type: Gemini.SchemaType.STRING,
-                description: "Name of the surah in English"
-            },
-            verse: {
-                type: Gemini.SchemaType.STRING,
-                description: "Verse number or range (e.g., '1-3')"
-            },
-            confidence: {
-                type: Gemini.SchemaType.NUMBER,
-                description: "Confidence score from 0 to 1"
+const assemblyClient = new AssemblyAI({
+    apiKey: ASSEMBLY_AI_KEY
+});
+
+// Schema definition for verse identification
+const verseIdentificationSchema = {
+    type: Gemini.SchemaType.OBJECT,
+    required: ['raw', 'results'],
+    properties: {
+        raw: {
+            type: Gemini.SchemaType.STRING,
+            description: "Raw transcription from AssemblyAI"
+        },
+        results: {
+            type: Gemini.SchemaType.ARRAY,
+            items: {
+                type: Gemini.SchemaType.OBJECT,
+                required: ['surah', 'verse', 'confidence'],
+                properties: {
+                    surah: {
+                        type: Gemini.SchemaType.STRING,
+                        description: "Name of the surah in English"
+                    },
+                    verse: {
+                        type: Gemini.SchemaType.STRING,
+                        description: "Verse number or range (e.g., '1-3')"
+                    },
+                    confidence: {
+                        type: Gemini.SchemaType.NUMBER,
+                        description: "Confidence score from 0 to 1"
+                    }
+                }
             }
         }
     }
 };
 
+async function getGladiaTranscription(url) {
+    const submitResponse = await fetch('https://api.gladia.io/v2/pre-recorded', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-gladia-key': GLADIA_API_KEY
+        },
+        body: JSON.stringify({
+            audio_url: url,
+            detect_language: true,
+            language: 'ar' // Explicitly specify Arabic for Quranic recitations
 
-const openAiSchema = {
-    type: "object",
-    properties: {
-        transcription: {
-            type: "array",
-            items: {
-                type: "object",
-                properties: {
-                    surah: {
-                        type: "string",
-                        description: "Name of the surah in English"
-                    },
-                    verse: {
-                        type: "string",
-                        description: "Verse number or range (e.g., '1-3')"
-                    },
-                    confidence: {
-                        type: "number",
-                        description: "Confidence score from 0 to 1"
-                    }
-                },
-                required: ["surah", "verse", "confidence"]
-            }
+        })
+    });
+
+    if (!submitResponse.ok) {
+        throw new Error(`Gladia submission failed: ${await submitResponse.text()}`);
+    }
+
+    const { id: transcriptionId } = await submitResponse.json();
+    let retries = 0;
+    const maxRetries = 15; // 15 retries * 2s = 30s total wait time
+    const pollInterval = 2000;
+
+    while (retries < maxRetries) {
+        const statusResponse = await fetch(`https://api.gladia.io/v2/pre-recorded/${transcriptionId}`, {
+            headers: { 'x-gladia-key': GLADIA_API_KEY }
+        });
+
+        if (!statusResponse.ok) {
+            throw new Error(`Gladia status check failed: ${await statusResponse.text()}`);
         }
-    },
-    required: ["transcription"]
-};
+
+        const data = await statusResponse.json();
+
+        if (data.status === 'done') {
+            return data.result.transcription.full_transcript;
+        }
+        if (data.status === 'error') {
+            throw new Error('Gladia transcription error');
+        }
+
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        retries++;
+    }
+
+    throw new Error('Gladia transcription timed out');
+}
 
 export async function POST({ request }) {
     try {
-        logger.start('Processing Quran audio file');
+        logger.info('Processing Quran audio file');
 
         const formData = await request.formData();
         const audioFile = formData.get('audio');
 
         if (!audioFile) {
-            logger.error('No audio file provided', { status: 400 });
-            return json({
-                status: 400,
-                body: { error: 'No audio file provided' }
-            });
+            logger.error('No audio file provided');
+            return json({ status: 400, error: 'No audio file provided' });
         }
 
-        const fileType = audioFile.type;
         const validAudioTypes = ['audio/wav', 'audio/mpeg', 'audio/mp3', 'audio/mp4'];
 
-        if (!validAudioTypes.includes(fileType)) {
-            logger.error('Invalid file type', { fileType, status: 400 });
-            return json({
-                status: 400,
-                body: { error: `Invalid file type. Supported types: ${validAudioTypes.join(', ')}` }
-            });
+        if (!validAudioTypes.includes(audioFile.type)) {
+            logger.error('Invalid file type', { fileType: audioFile.type });
+            return json({ status: 400, error: `Invalid file type. Supported types: ${validAudioTypes.join(', ')}` });
         }
 
-        const fileSize = audioFile.size;
-        const maxSize = 15 * 1024 * 1024;
-
-        if (fileSize > maxSize) {
-            logger.error('File too large', { fileSize, maxSize, status: 400 });
-            return json({
-                status: 400,
-                body: { error: 'File size exceeds 15MB limit' }
-            });
+        if (audioFile.size > 15 * 1024 * 1024) {
+            logger.error('File too large', { fileSize: audioFile.size });
+            return json({ status: 400, error: 'File size exceeds 15MB limit' });
         }
 
-        let audioBuffer;
-        try {
-            audioBuffer = Buffer.from(await audioFile.arrayBuffer());
-            logger.debug('Audio buffer created', {
-                length: audioBuffer.length,
-                fileType,
-                fileSize: `${(fileSize / 1024 / 1024).toFixed(2)}MB`
-            });
-        } catch (bufferError) {
-            logger.error('Error creating audio buffer', bufferError);
-            return json({
-                status: 500,
-                body: { error: 'Failed to process audio file' }
-            });
-        }
+        // Upload audio to Vercel Blob
+        const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
+        const { url } = await put(`audio/${Date.now()}.wav`, audioBuffer, {
+            access: 'public',
+            token: BLOB_READ_WRITE_TOKEN
+        });
+
+        let rawTranscription;
 
         try {
-            // Try Gemini first
-            const geminiResponse  = await gemini.ask(
-                "Transcribe this Quranic recitation, identifying the specific verses being recited.",
+            // First attempt: Gladia.io
+            rawTranscription = await getGladiaTranscription(url);
+            logger.debug('Gladia transcription completed', { transcription: rawTranscription });
+        } catch (gladiaError) {
+            logger.error("Gladia Transcription failed", gladiaError)
+            logger.warn('Gladia transcription failed, falling back to AssemblyAI');
+            Sentry.captureException(gladiaError);
+
+            // Fallback to AssemblyAI
+            const transcriptionResult = await assemblyClient.transcripts.transcribe({
+                audio_url: url
+            });
+            rawTranscription = transcriptionResult.text;
+            logger.debug('AssemblyAI transcription completed', { transcription: rawTranscription });
+        }
+
+        let identification;
+
+        try {
+            // Try Gemini first for verse identification
+            const geminiResponse = await gemini.ask(
+                "Analyze this transcription and identify any Quranic verses present.",
                 {
                     format: Gemini.JSON,
                     temperature: 0.3,
                     topP: 0.97,
                     model: 'gemini-1.5-pro',
                     maxOutputTokens: 4096,
-                    systemInstruction: `You are a Quran transcription specialist. Your task is to:
-1. Listen carefully to the audio and identify Quranic verses
-2. Return the exact surah name and verse numbers
-3. Handle different recitation styles and speeds
-4. Be precise with verse boundaries
-If multiple verses are detected, return all of them in a separate object in the array response.`,
-                    jsonSchema: transcriptionSchema,
-                    data: [{
-                        type: fileType,
-                        buffer: audioBuffer
-                    }],
-                    safetySettings: {
-                        HARASSMENT: 'block_none',
-                        HATE_SPEECH: 'block_none',
-                        SEXUALLY_EXPLICIT: 'block_high',
-                        DANGEROUS_CONTENT: 'block_medium'
-                    }
+                    systemInstruction: `You are a Quran verse identification specialist. Your task is to:
+1. Analyze the provided transcription
+2. Identify any Quranic verses present
+3. Return the exact surah name and verse numbers
+4. Include confidence scores for each identification
+If multiple verses are detected, include all of them in the results array.`,
+                    jsonSchema: verseIdentificationSchema,
+                    text: rawTranscription
                 }
             );
 
-            // Extract the actual transcription data from Gemini's response
-            const transcription = geminiResponse.candidates?.[0]?.content.parts ?? [];
-
-            logger.success('Gemini transcription successful', transcription);
-
-            return json({
-                status: 200,
-                body: {
-                    message: 'Quran recitation processed successfully',
-                    transcription,
-                    provider: 'gemini'
+            // Attempt to parse the candidate response
+            let candidateContent = geminiResponse.candidates?.[0]?.content;
+            if (!candidateContent) {
+                identification = { raw: rawTranscription, results: [] };
+            } else if (typeof candidateContent === 'string') {
+                try {
+                    identification = JSON.parse(candidateContent);
+                } catch (parseError) {
+                    // If candidateContent has a parts property, try parsing that
+                    if (candidateContent.parts && candidateContent.parts[0]?.text) {
+                        try {
+                            identification = JSON.parse(candidateContent.parts[0].text);
+                        } catch (innerParseError) {
+                            identification = { raw: rawTranscription, results: [] };
+                        }
+                    } else {
+                        identification = { raw: rawTranscription, results: [] };
+                    }
                 }
-            });
+            } else if (candidateContent.parts && candidateContent.parts[0]?.text) {
+                try {
+                    identification = JSON.parse(candidateContent.parts[0].text);
+                } catch (innerParseError) {
+                    identification = { raw: rawTranscription, results: [] };
+                }
+            } else {
+                identification = candidateContent;
+            }
 
+            logger.info('Gemini verse identification successful', identification);
         } catch (geminiError) {
-            // Log Gemini error and try OpenAI as fallback
             Sentry.captureException(geminiError);
-            logger.warn('Gemini transcription failed, attempting OpenAI fallback', { error: geminiError.message });
+            logger.warn('Gemini identification failed, attempting OpenAI fallback');
 
-            const completion = await openai.chat.completions.create({
-                model: "gpt-4o-mini",
-                messages: [
-                    {
-                        role: "system",
-                        content: `You are a Quran transcription specialist. Analyze the provided audio file and identify the Quranic verses being recited. Return the results in a structured format with surah name, verse numbers, and confidence scores.`
-                    },
-                    {
-                        role: "user",
-                        content: "Process this Quranic recitation audio file."
-                    }
-                ],
-                response_format: {
-                    type: "json_schema",
-                    json_schema: {
-                        "name": "transcription_schema",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "transcription": {
-                                    "type": "array",
-                                    "description": "List of transcriptions including surah, verse, and confidence.",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "surah": {
-                                                "type": "string",
-                                                "description": "Name of the surah in English."
-                                            },
-                                            "verse": {
-                                                "type": "string",
-                                                "description": "Verse number or range (e.g., '1-3')."
-                                            },
-                                            "confidence": {
-                                                "type": "number",
-                                                "description": "Confidence score from 0 to 1."
-                                            }
-                                        },
-                                        "required": [
-                                            "surah",
-                                            "verse",
-                                            "confidence"
-                                        ],
-                                        "additionalProperties": false
-                                    }
-                                }
-                            },
-                            "required": [
-                                "transcription"
-                            ],
-                            "additionalProperties": false
-                        },
-                        "strict": true
-                    }
-                },
-                temperature: 0.3
-            });
             try {
-                const openAiTranscription = completion.choices[0].message.content;
-                logger.success('OpenAI transcription successful', openAiTranscription);
-
-                return json({
-                    status: 200,
-                    body: {
-                        message: 'Quran recitation processed successfully',
-                        transcription: openAiTranscription.transcription,
-                        provider: 'openai'
-                    }
+                const openaiResponse = await openai.chat.completions.create({
+                    model: "gpt-4",
+                    messages: [
+                        {
+                            role: "system",
+                            content: "You are an AI specialized in identifying Quranic verses from transcriptions."
+                        },
+                        {
+                            role: "user",
+                            content: `Analyze the following text and identify Quranic verses:\n\n${rawTranscription}`
+                        }
+                    ],
+                    response_format: "json",
+                    max_tokens: 2048,
+                    temperature: 0.3
                 });
-            } catch (openAiError) {
-                Sentry.captureException(openAiError);
-                throw new Error('Both Gemini and OpenAI transcription failed');
+
+                let openaiContent = openaiResponse.choices?.[0]?.message?.content;
+                if (typeof openaiContent === 'string') {
+                    try {
+                        identification = JSON.parse(openaiContent);
+                    } catch (openaiParseError) {
+                        identification = { raw: rawTranscription, results: [] };
+                    }
+                } else {
+                    identification = { raw: rawTranscription, results: [] };
+                }
+
+                logger.info('OpenAI verse identification successful', identification);
+            } catch (openaiError) {
+                Sentry.captureException(openaiError);
+                logger.error('OpenAI identification failed, returning raw transcription');
+                identification = { raw: rawTranscription, results: [] };
             }
         }
-    } catch (error) {
-        logger.error('Unexpected error in processing endpoint', {
-            error: error.message,
-            stack: error.stack
-        });
-        Sentry.captureException(error);
+
+        // Ensure identification.results exists as an array
+        if (!identification || !Array.isArray(identification.results)) {
+            identification.results = [];
+        }
+
+        const provider = identification.results.length > 0 ? 'gemini' : 'openai';
+
         return json({
-            status: 500,
-            body: { error: 'An unexpected error occurred while processing the recitation' }
+            status: 200,
+            message: 'Quran recitation processed successfully',
+            ...identification,
+            provider
         });
+    } catch (error) {
+        Sentry.captureException(error);
+        logger.error('Error processing request', error);
+        return json({ status: 500, error: 'Internal server error' });
     } finally {
-        logger.end('Quran audio processing completed');
+        logger.info('Quran audio processing completed');
     }
 }
