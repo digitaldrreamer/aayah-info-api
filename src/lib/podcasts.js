@@ -1,32 +1,82 @@
 import * as cheerio from 'cheerio';
 import logger from '$lib/logger';
 
-function prepareEpisode(value) {
-    // Check for necessary properties, and provide defaults if missing
-    const requiredProperties = ['episodeTitle', 'episodeURL', 'episodeDate'];
+async function waitForContent($, selector, maxAttempts = 10, interval = 1000) {
+    let attempts = 0;
+    while (attempts < maxAttempts) {
+        const elements = $(selector);
+        if (elements.length > 0) {
+            return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, interval));
+        attempts++;
+    }
+    return false;
+}
 
-    for (let prop of requiredProperties) {
-        if (!value[prop]) {
-            console.warn(`Missing property: ${prop}, using fallback.`);
-            value[prop] = value[prop] || 'Unknown'; // Provide fallback value
+function prepareEpisode(episode) {
+    if (!episode || typeof episode !== 'object') {
+        logger.warn('Invalid episode data received');
+        return null;
+    }
+
+    return {
+        title: episode.episodeTitle || 'Unknown Title',
+        duration: episode.episodeDuration || 'Unknown Duration',
+        size: episode.episodeSize || 'Unknown Size',
+        date: episode.episodeDate || 'Unknown Date',
+        url: episode.episodeURL ? `https://podcasts.muslimcentral.com/${episode.episodeURL}` : null,
+        postLink: episode.postLink || null,
+        formattedTitle: `${episode.episodeTitle || 'Unknown Title'} (${episode.episodeDuration || 'Unknown Duration'})`,
+        downloadLink: episode.episodeURL ? `https://podcasts.muslimcentral.com/${episode.episodeURL}` : null
+    };
+}
+
+async function extractPodcastData($) {
+    // Try multiple selectors to handle potential structure changes
+    const podcastSelectors = [
+        '.podcast-entry', // Example new selector
+        '.audio-item',    // Example alternative selector
+        '[data-type="podcast"]' // Another possibility
+    ];
+
+    for (const selector of podcastSelectors) {
+        const elements = $(selector);
+        if (elements.length > 0) {
+            logger.success(`Found podcast elements using selector: ${selector}`);
+            return Array.from(elements).map(element => {
+                const $element = $(element);
+                return {
+                    episodeTitle: $element.find('.title, .podcast-title').text().trim(),
+                    episodeDuration: $element.find('.duration, .length').text().trim(),
+                    episodeURL: $element.find('audio source, .download-link').attr('src') ||
+                        $element.find('a[href$=".mp3"]').attr('href'),
+                    episodeDate: $element.find('.date, .published').text().trim(),
+                    postLink: $element.find('a:not([href$=".mp3"])').attr('href')
+                };
+            });
         }
     }
 
-    // Structure the data to be displayed or processed
-    const result = {
-        title: value.episodeTitle,
-        duration: value.episodeDuration || 'Unknown Duration',  // Default for missing duration
-        size: value.episodeSize || 'Unknown Size',              // Default for missing size
-        date: value.episodeDate,
-        url: value.episodeURL ? 'https://podcasts.muslimcentral.com/' + value.episodeURL : null,
-        postLink: value.postLink || null,
-        formattedTitle: `${value.episodeTitle || 'Unknown Title'} (${value.episodeDuration || 'Unknown Duration'})`,
-        downloadLink: value.episodeURL ? 'https://podcasts.muslimcentral.com/' + value.episodeURL : null
-    };
+    // Fallback to script tag parsing if DOM elements aren't found
+    logger.info('Attempting to extract data from script tags');
+    let scriptData = null;
+    $('script').each((_, element) => {
+        const content = $(element).html();
+        if (content && content.includes('const values =')) {
+            try {
+                const match = content.match(/const\s+values\s*=\s*(\[[\s\S]*?\]);/);
+                if (match && match[1]) {
+                    scriptData = JSON.parse(match[1]);
+                    return false; // Break the loop
+                }
+            } catch (err) {
+                logger.error('Failed to parse script data', err);
+            }
+        }
+    });
 
-    console.log("Prepared episode:", result);  // Log the result for debugging
-
-    return result;
+    return scriptData;
 }
 
 async function getPodcasts() {
@@ -43,67 +93,63 @@ async function getPodcasts() {
         });
 
         if (!response.ok) {
-            logger.error('HTTP Response not OK', {
-                status: response.status,
-                statusText: response.statusText
-            });
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        logger.success('Fetch successful');
         const html = await response.text();
-        logger.debug('HTML length', html.length);
-
+        console.log(html)
         const $ = cheerio.load(html);
-        logger.info('Cheerio loaded successfully');
 
-        // Find all script tags
-        let values = [];
-        $('script').each((_, element) => {
-            const scriptContent = $(element).html();
-            if (scriptContent && scriptContent.includes('const values =')) {
-                try {
-                    // Extract the values array using regex
-                    const valuesMatch = scriptContent.match(/const\s+values\s*=\s*(\[[\s\S]*?\]);/);
-                    if (valuesMatch && valuesMatch[1]) {
-                        logger.debug('Found values array in script');
-                        values = JSON.parse(valuesMatch[1]);
-                        logger.success('Successfully parsed values array');
-                        return false; // Break the each loop
-                    }
-                } catch (err) {
-                    logger.error('Failed to parse values array', err);
-                }
-            }
-        });
+        // Wait for dynamic content to load
+        const contentLoaded = await waitForContent($, '.podcast-entry, .audio-item, [data-type="podcast"]');
+        if (!contentLoaded) {
+            logger.warn('Content did not load within the timeout period');
+        }
 
-        logger.raw('Extracted Values', values);
+        // Extract podcast data
+        const podcastData = await extractPodcastData($);
+        if (!podcastData) {
+            throw new Error('Failed to extract podcast data');
+        }
 
-        // Extract series data
+        // Process the extracted data
+        const audioList = podcastData
+            .map(prepareEpisode)
+            .filter(episode => episode !== null);
+
+        // Extract series data with multiple selector attempts
         const seriesList = [];
-        $('#series tr').each((index, element) => {
-            const series = {
-                title: $(element).find('a').text().trim(),
-                link: $(element).find('a').attr('href') || null
-            };
-            if (series.link) {
-                seriesList.push(series);
-                logger.debug(`Processed series ${index + 1}`, series);
-            }
+        const seriesSelectors = ['#series tr', '.series-list .item', '.series-entry'];
+
+        for (const selector of seriesSelectors) {
+            $(selector).each((_, element) => {
+                const $element = $(element);
+                const series = {
+                    title: $element.find('a').text().trim(),
+                    link: $element.find('a').attr('href') || null
+                };
+                if (series.link && series.title) {
+                    seriesList.push(series);
+                }
+            });
+
+            if (seriesList.length > 0) break;
+        }
+
+        logger.success('Data extraction complete', {
+            audioCount: audioList.length,
+            seriesCount: seriesList.length
         });
 
-        logger.success('Series list extracted', { count: seriesList.length });
-
-        return { audioList: values.map(v => prepareEpisode(v)), seriesList };
+        return { audioList, seriesList };
 
     } catch (error) {
         logger.error('Failed to fetch data', {
             message: error.message,
             stack: error.stack
         });
-
-        return { error: "Failed to fetch data" };
+        return { error: "Failed to fetch data", details: error.message };
     }
 }
 
-export default getPodcasts
+export default getPodcasts;

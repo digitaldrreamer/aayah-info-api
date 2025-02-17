@@ -1,90 +1,8 @@
-/**
- * @typedef {Object} QuranResponse
- * @property {boolean} success - Indicates if the request was successful.
- * @property {string} message - A message about the request status.
- * @property {QuranData} data - The response data containing Quran information.
- */
-
-/**
- * @typedef {Object} QuranData
- * @property {Quran} quran - The Quran details.
- */
-
-/**
- * @typedef {Object} Quran
- * @property {Chapter[]} chapters - Array of chapters from the Quran.
- */
-
-/**
- * @typedef {Object} Chapter
- * @property {number} chapter - The chapter number.
- * @property {Name} name - The chapter names in different languages.
- * @property {string} revelation - The place of revelation.
- * @property {number} versesCount - The number of verses in the chapter.
- */
-
-/**
- * @typedef {Object} Name
- * @property {string} ar - The chapter name in Arabic.
- * @property {string} en - The chapter name in English.
- */
-
-/**
- * @typedef {Object} HadithBookResponse
- * @property {boolean} success - Indicates if the request was successful.
- * @property {string} message - A message providing details about the request.
- * @property {HadithBookData} data - The data payload containing hadith books.
- */
-
-/**
- * @typedef {Object} HadithBookData
- * @property {Object.<string, HadithBook>} books - An object mapping book IDs to their respective hadith book details.
- */
-
-/**
- * @typedef {Object} HadithBook
- * @property {string} id - The unique identifier of the hadith book.
- * @property {string} name - The name of the hadith book.
- * @property {HadithCollection[]} collection - Array of available collection editions.
- * @property {Object.<string, string>} sections - An object mapping section keys to section titles.
- * @property {number} last_hadithnumber - The number of the last hadith in the book.
- * @property {Object.<string, SectionDetail>} section_details - An object mapping section keys to their detailed info.
- */
-
 import { json } from '@sveltejs/kit';
-import logger from '$lib/logger.js'
+import logger from '$lib/logger.js';
+import { latinize } from "modern-diacritics";
+import { getDua } from "$lib/sources/hisnul-muslim/hisnul-muslim.js";
 
-/**
- * @typedef {Object} SectionDetail
- * @property {number} hadithnumber_first - The starting hadith number for this section.
- * @property {number} hadithnumber_last - The ending hadith number for this section.
- * @property {number} arabicnumber_first - The starting Arabic number for this section.
- * @property {number} arabicnumber_last - The ending Arabic number for this section.
- */
-
-/**
- * Efficiently generates a range of numbers
- * @param {number} start
- * @param {number} end
- * @returns {number[]}
- */
-const range = (start, end) => {
-    logger.debug(`Generating range from ${start} to ${end}`);
-    if (start > end) [start, end] = [end, start];
-    const result = [...Array(end - start + 1)].map((_, i) => start + i);
-    logger.debug(`Generated ${result.length} numbers`);
-    return result;
-};
-
-/**
- * Generates URL with proper encoding
- * @param {string[]} parts
- * @returns {string}
- */
-const generateUrl = (...parts) => {
-    const encodedParts = parts.map(part => encodeURIComponent(part));
-    return `https://aayah.info/${encodedParts.join('/')}`;
-};
 
 const juzs = [
     { number: 1, name: 'Alif Lam Mim', surahs: '1:1 - 2:141' },
@@ -234,6 +152,19 @@ const surahs = [
     { number: 113, name: 'Al-Falaq', arabicName: 'الفلق', versesCount: 5 },
     { number: 114, name: 'An-Nas', arabicName: 'الناس', versesCount: 6 }
 ];
+/**
+ * Efficiently generates a range of numbers
+ * @param {number} start
+ * @param {number} end
+ * @returns {number[]}
+ */
+const range = (start, end) => {
+    logger.debug(`Generating range from ${start} to ${end}`);
+    if (start > end) [start, end] = [end, start];
+    const result = [...Array(end - start + 1)].map((_, i) => start + i);
+    logger.debug(`Generated ${result.length} numbers`);
+    return result;
+};
 const pages = range(1, 604);
 const duas = [
     {
@@ -1738,237 +1669,378 @@ const duas = [
     }
 ]
 
-/**
- * Validates hadith book data
- * @param {Object} book
- * @returns {boolean}
- */
-const isValidHadithBook = (book) => {
-    return book &&
-        typeof book === 'object' &&
-        book.id &&
-        typeof book.id === 'string' &&
-        book.sections &&
-        typeof book.sections === 'object' &&
-        typeof book.last_hadithnumber === 'number'; // Corrected to number
-};
+
+// Constants
+const QURAN_API_BASE_URL = 'https://api.aayah.info/api/v1';
+const QURAN_PAGES_COUNT = 604;
+
+// Caching variables
+let cachedSitemap = null;
+let cachedSitemapTimestamp = 0;
+const CACHE_DURATION_MS = 3600 * 1000; // 1 hour
 
 /**
- * Process sections for a hadith book
- * @param {Object} book
- * @param {Set<string>} urls
- * @param {string} bookId
+ * A corrected async pool implementation to limit concurrency
+ * @param {number} poolLimit - maximum number of concurrent promises
+ * @param {Array} array - array of items to process
+ * @param {function} iteratorFn - async function to process each item
+ * @returns {Promise<Array>} - resolves to an array of results
  */
-const processBookSections = (book, urls, bookId) => {
-    try {
-        const sections = book.sections || {};
-
-        // Handle both numbered and named sections
-        const validSections = Object.entries(sections)
-            .filter(([_, title]) => {
-                // Filter out empty sections and section "0" which is often empty
-                return Boolean(title) || (title === "" && book.section_details?.[_]?.hadithnumber_last > 0);
-            });
-
-        logger.debug(`Processing ${validSections.length} chapters for book ${bookId}`);
-
-        validSections.forEach(([index, title]) => {
-            // Check if this section has valid hadiths
-            const sectionDetails = book.section_details?.[index];
-            if (sectionDetails && sectionDetails.hadithnumber_last > 0) {
-                urls.add(generateUrl('hadith', bookId, 'chapter', index));
-
-                // Log section details for debugging
-                logger.debug(`Added section ${index} for book ${bookId}: ${title || 'Unnamed'} (hadiths: ${sectionDetails.hadithnumber_first}-${sectionDetails.hadithnumber_last})`);
-            }
+const asyncPool = async (poolLimit, array, iteratorFn) => {
+    const ret = [];
+    const executing = [];
+    for (const item of array) {
+        const p = Promise.resolve().then(() => iteratorFn(item));
+        const wrappedP = p.then((result) => {
+            executing.splice(executing.indexOf(wrappedP), 1);
+            return result;
         });
-
-    } catch (error) {
-        logger.error(`Error processing sections for book ${bookId}`, error);
+        ret.push(wrappedP);
+        executing.push(wrappedP);
+        if (executing.length >= poolLimit) {
+            await Promise.race(executing);
+        }
     }
+    return Promise.all(ret);
 };
 
 /**
- * Generates Hadith-related URLs with validation
- * @param {Object} booksData
- * @returns {Set<string>}
+ * Normalizes text for search
+ * @param {string} text
+ * @returns {string}
  */
-const generateHadithUrls = (booksData) => {
-    logger.start('Generating Hadith URLs');
-    const urls = new Set();
-    urls.add(generateUrl('hadith'));
-
-    if (!booksData || typeof booksData !== 'object') {
-        logger.warn('Invalid books data provided', booksData);
-        return urls;
-    }
-
-    const books = Object.values(booksData);
-    logger.info(`Processing ${books.length} hadith books`);
-
-    books.forEach(book => {
-        if (!isValidHadithBook(book)) {
-            logger.warn(`Skipping invalid book`, book);
-            return;
-        }
-
-        const bookId = book.id;
-        urls.add(generateUrl('hadith', bookId));
-
-        // Process book sections
-        processBookSections(book, urls, bookId);
-
-        // Generate hadith number URLs
-        try {
-            const lastHadith = book.last_hadithnumber; // Directly use as number
-            if (typeof lastHadith !== 'number' || lastHadith < 1) {
-                logger.warn(`Invalid last_hadithnumber for book ${bookId}`, lastHadith);
-                return;
-            }
-
-            logger.debug(`Generating URLs for ${lastHadith} hadiths in book ${bookId}`);
-
-            // Generate URLs in batches of 1000 to avoid memory issues
-            const batchSize = 1000;
-            for (let i = 1; i <= lastHadith; i += batchSize) {
-                const end = Math.min(i + batchSize - 1, lastHadith);
-                for (let num = i; num <= end; num++) {
-                    urls.add(generateUrl('hadith', bookId, 'number', num.toString()));
-                }
-                if (i + batchSize < lastHadith) {
-                    logger.debug(`Generated URLs for hadiths ${i}-${end} of ${lastHadith} in book ${bookId}`);
-                }
-            }
-        } catch (error) {
-            logger.error(`Error generating hadith URLs for book ${bookId}`, error);
-        }
+const normalizeSearchText = (text) => {
+    return latinize(text, {
+        symbols: true,
+        lowerCase: true,
+        trim: true
     });
-
-    logger.success(`Generated ${urls.size} Hadith URLs`);
-    return urls;
 };
 
-// ... (generateQuranUrls and generateDuaUrls functions remain unchanged)
 /**
- * Generates Dua-related URLs
- * @param {object[]} duas
- * @returns {Set<string>}
+ * Creates a URL-safe string
+ * @param {string[]} parts
+ * @returns {string}
  */
-const generateDuaUrls = (duas) => {
-    logger.start('Generating Dua URLs');
-    const urls = new Set();
-    urls.add(generateUrl('dua'));
+const generateUrl = (...parts) => {
+    return `https://aayah.info/${parts.map(encodeURIComponent).join('/')}`;
+};
 
-    logger.debug(`Processing ${duas.length} duas`);
-    duas.forEach(dua => urls.add(generateUrl('dua', dua.index.toString())));
+/**
+ * Creates a URL entry object
+ * @param {string} name
+ * @param {string} url
+ * @param {string} type
+ * @param {string} searchableText
+ * @returns {Object}
+ */
+const createUrlEntry = (name, url, type, searchableText = '') => ({
+    name,
+    url,
+    type,
+    searchable: searchableText,
+    searchable_normal: normalizeSearchText(searchableText)
+});
 
-    logger.success(`Generated ${urls.size} Dua URLs`);
-    return urls;
+/**
+ * Delays execution by specified milliseconds
+ * @param {number} ms Milliseconds to delay
+ * @returns {Promise<void>}
+ */
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Rate-limited fetch function
+ * @param {string} url URL to fetch
+ * @param {Object} options Fetch options
+ * @returns {Promise<Response>}
+ */
+const rateLimitedFetch = async (url, options = {}) => {
+    const maxRetries = 3;
+    let lastError;
+
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response;
+        } catch (error) {
+            lastError = error;
+            await delay(1000 * (i + 1)); // Exponential backoff
+        }
+    }
+    throw lastError;
+};
+
+/**
+ * Fetches verse data for a given surah and verse
+ * @param {number|string} surahNum
+ * @param {number} verse
+ * @returns {Promise<Object>}
+ */
+const fetchVerseData = async (surahNum, verse) => {
+    try {
+        const [engRes, araRes] = await Promise.all([
+            rateLimitedFetch(`${QURAN_API_BASE_URL}/quran/eng-yusufaliorig/surah/${surahNum}/verse/${verse}?audio=Alafasy_128kbps&tafsir=en-tafisr-ibn-kathir`),
+            rateLimitedFetch(`${QURAN_API_BASE_URL}/quran/ara-qurandoorinonun/surah/${surahNum}/verse/${verse}?audio=Alafasy_128kbps&tafsir=en-tafisr-ibn-kathir`)
+        ]);
+
+        const [engData, araData] = await Promise.all([
+            engRes.json(),
+            araRes.json()
+        ]);
+
+        return {
+            englishText: engData?.data?.verse?.text || '',
+            arabicText: araData?.data?.verse?.text || '',
+            tafsir: engData?.data?.tafsir || ''
+        };
+    } catch (error) {
+        logger.error(`Error fetching verse data for ${surahNum}:${verse}`, error);
+        return { englishText: '', arabicText: '', tafsir: '' };
+    }
+};
+
+/**
+ * Fetches hadith data for a given book and number
+ * @param {string} bookId
+ * @param {number} num
+ * @returns {Promise<Object>}
+ */
+const fetchHadithData = async (bookId, num) => {
+    try {
+        const response = await fetch(`${QURAN_API_BASE_URL}/hadith/${bookId}/section/1/${num}`);
+        const data = await response.json();
+        const hadith = data?.data?.hadith?.hadiths[0] || {};
+
+        return {
+            englishText: hadith?.text?.en || '',
+            arabicText: hadith?.text?.ar || '',
+            grades: hadith?.grades?.map(grade => `${grade.name} ${grade.grade}`).join(' ') || ''
+        };
+    } catch (error) {
+        logger.error(`Error fetching hadith data for ${bookId}:${num}`, error);
+        return { englishText: '', arabicText: '', grades: '' };
+    }
 };
 
 /**
  * Generates Quran-related URLs
- * @param {object[]} surahs
- * @param {object[]} juzs
- * @returns {Set<string>}
+ * @param {Array} surahs
+ * @param {Array} juzs
+ * @returns {Promise<Array>}
  */
-const generateQuranUrls = (surahs, juzs) => {
+const generateQuranUrls = async (surahs, juzs) => {
     logger.start('Generating Quran URLs');
-    const urls = new Set();
+    const urls = [];
 
-    // Add base URLs
-    logger.debug('Adding base Quran URLs');
-    urls.add(generateUrl('quran'));
-    urls.add(generateUrl('quran', 'quiz'));
+    // Base URLs
+    urls.push(
+        createUrlEntry('Quran Home', generateUrl('quran'), 'Sections', 'Quran Koran Keu Kewu Home'),
+        createUrlEntry('Quran Quiz', generateUrl('quran', 'quiz'), 'Sections', 'Quran Koran Keu Kewu Quiz')
+    );
 
-    // Add juz URLs
+    // Juz URLs
     logger.debug(`Processing ${juzs.length} juzs`);
     juzs.forEach(juz => {
-        urls.add(generateUrl('quran', 'juz', juz.number.toString()));
+        const searchableText = `Quran Juz ${juz.number} ${juz.name}`;
+        urls.push(createUrlEntry(
+            `Juz ${juz.number} - ${juz.name}`,
+            generateUrl('quran', 'juz', juz.number.toString()),
+            'Quran Juz',
+            searchableText
+        ));
     });
 
-    // Add surah and verse URLs
+    // Surah and Verse URLs using asyncPool for concurrency
     logger.debug(`Processing ${surahs.length} surahs`);
-    surahs.forEach(surah => {
+    for (const surah of surahs) {
         const surahNum = surah.number.toString();
-        urls.add(generateUrl('quran', 'surah', surahNum));
+        const surahName = `${surah.name} (${surah.arabicName})`;
 
-        logger.debug(`Generating verse URLs for surah ${surahNum} (${surah.versesCount} verses)`);
-        for (let verse = 1; verse <= surah.versesCount; verse++) {
-            urls.add(`${generateUrl('quran', 'surah', surahNum)}#verse:${verse}`);
-        }
-    });
+        // Surah main page
+        urls.push(createUrlEntry(
+            `Surah ${surahName}`,
+            generateUrl('quran', 'surah', surahNum),
+            'Quran Surah',
+            `Quran Surah ${surahNum} - ${surahName}`
+        ));
 
-    // Add page URLs
-    logger.debug('Generating page URLs');
-    for (let page = 1; page <= 604; page++) {
-        urls.add(generateUrl('quran', 'page', page.toString()));
+        // Process verses with a concurrency limit (e.g., 5 at a time)
+        const verseNumbers = Array.from({ length: surah.versesCount }, (_, i) => i + 1);
+        const verseUrls = await asyncPool(5, verseNumbers, async verse => {
+            const verseData = await fetchVerseData(surahNum, verse);
+            return createUrlEntry(
+                `Surah ${surahName} - Verse ${verse}`,
+                `${generateUrl('quran', 'surah', surahNum)}#verse:${verse}`,
+                'Quran Verse',
+                `Quran Surah ${surahNum} ${surahName} verse ${verse} ${verseData.englishText} ${verseData.tafsir} ${verseData.arabicText}`
+            );
+        });
+        urls.push(...verseUrls);
     }
 
-    logger.success(`Generated ${urls.size} Quran URLs`);
+    // Page URLs
+    logger.debug('Generating page URLs');
+    for (let page = 1; page <= QURAN_PAGES_COUNT; page++) {
+        urls.push(createUrlEntry(
+            `Quran Page ${page}`,
+            generateUrl('quran', 'page', page.toString()),
+            'Quran Page'
+        ));
+    }
+
+    logger.success(`Generated ${urls.length} Quran URLs`);
     return urls;
 };
 
-export const GET = async ({ fetch }) => {
+/**
+ * Generates Hadith-related URLs
+ * @param {Object} booksData
+ * @returns {Promise<Array>}
+ */
+const generateHadithUrls = async (booksData) => {
+    logger.start('Generating Hadith URLs');
+    const urls = [
+        createUrlEntry('Hadith Collections', generateUrl('hadith'), 'Sections', 'All Hadith Collections')
+    ];
+
+    if (!booksData?.success || !booksData?.data?.books || typeof booksData.data?.books !== 'object') {
+        logger.warn('Invalid books data provided', booksData);
+        return urls;
+    }
+
+    const books = Object.values(booksData.data.books);
+    logger.info(`Processing ${books.length} hadith books`);
+
+    for (const book of books) {
+        if (!book?.id || !book?.name || typeof book?.last_hadithnumber !== 'number') {
+            logger.warn(`Skipping invalid book: ${book?.id}`);
+            continue;
+        }
+
+        urls.push(createUrlEntry(
+            `Hadith Book: ${book.name}`,
+            generateUrl('hadith', book.id),
+            'Hadith Books',
+            `Hadith Book ${book.name}`
+        ));
+
+        if (book.sections && book.section_details) {
+            Object.entries(book.sections)
+                .filter(([key, title]) => {
+                    const details = book.section_details[key];
+                    return details && details.hadithnumber_last > 0;
+                })
+                .forEach(([key, title]) => {
+                    urls.push(createUrlEntry(
+                        `Hadith Book: ${book.name} - ${title || `Section ${key}`}`,
+                        generateUrl('hadith', book.id, 'chapter', key),
+                        'Hadith Sections',
+                        `Hadith ${book.name} ${title || `Section ${key}`}`
+                    ));
+                });
+        }
+
+        if (book.last_hadithnumber > 0) {
+            const hadithNumbers = Array.from({ length: book.last_hadithnumber }, (_, i) => i + 1);
+            const hadithUrls = await asyncPool(5, hadithNumbers, async num => {
+                const hadithData = await fetchHadithData(book.id, num);
+                return createUrlEntry(
+                    `Hadith ${num} from ${book.name}`,
+                    generateUrl('hadith', book.id, 'number', num.toString()),
+                    'Hadiths',
+                    `Hadith ${num} from ${book.name} ${hadithData.englishText} ${hadithData.arabicText} ${hadithData.grades}`
+                );
+            });
+            urls.push(...hadithUrls);
+        }
+    }
+
+    logger.success(`Generated ${urls.length} Hadith URLs`);
+    return urls;
+};
+
+/**
+ * Generates Dua-related URLs
+ * @param {Object[]} duas
+ * @returns {Array}
+ */
+const generateDuaUrls = (duas) => {
+    logger.start('Generating Dua URLs');
+    const urls = [
+        createUrlEntry('Duas Collection', generateUrl('dua'), 'Sections', 'Duas Dua Collection Hisnul Muslim Prayer Adhkar Askar Adua')
+    ];
+
+    logger.debug(`Processing ${duas.length} duas`);
+    duas.forEach(dua => {
+        const fullDua = getDua(dua.index);
+        const searchableText = `Hisnul Muslim Dua Adhkar Adua Prayer Askar Collection Duas ${fullDua.title} ${fullDua.arabic} ${fullDua.latin} ${fullDua.translation} ${fullDua.benefits}`;
+
+        urls.push(createUrlEntry(
+            dua.name,
+            generateUrl('dua', dua.index.toString()),
+            'Dua',
+            searchableText
+        ));
+    });
+
+    logger.success(`Generated ${urls.length} Dua URLs`);
+    return urls;
+};
+
+export const GET = async ({ fetch, setHeaders }) => {
+    // Return cached sitemap if it exists and is fresh
+    if (cachedSitemap && (Date.now() - cachedSitemapTimestamp < CACHE_DURATION_MS)) {
+        setHeaders({
+            'Cache-Control': 'public, max-age=3600',
+            'Content-Type': 'application/json'
+        });
+        return json(cachedSitemap);
+    }
+
     logger.start('Sitemap generation process');
     const startTime = performance.now();
 
     try {
         // Fetch hadith data
-        logger.info('Fetching hadith data');
-        const req = await fetch('https://api.aayah.info/api/v1/hadith');
-        const res = await req.json();
-
-        logger.debug(`Hadith data fetch took ${(performance.now() - startTime).toFixed(2)}ms`);
-
-        if (!req.ok || !res.success) {
+        const hadithRes = await fetch(`${QURAN_API_BASE_URL}/hadith`);
+        if (!hadithRes.ok) {
             throw new Error('Failed to fetch hadith data');
         }
-
-        logger.raw('Hadith API Response', {
-            status: req.status,
-            ok: req.ok,
-            success: res.success,
-            hasData: Boolean(res.data),
-            booksCount: res.data?.books ? Object.keys(res.data.books).length : 0
-        });
+        const hadithData = await hadithRes.json();
 
         // Generate all URLs concurrently
-        logger.info('Starting concurrent URL generation');
         const [quranUrls, hadithUrls, duaUrls] = await Promise.all([
             generateQuranUrls(surahs, juzs),
-            generateHadithUrls(res.data?.books),
+            generateHadithUrls(hadithData),
             generateDuaUrls(duas)
         ]);
 
-        // Combine all URLs
+        logger.info('Quran Count', quranUrls.length);
+        logger.info('Hadith Count', hadithUrls.length);
+        logger.info('Dua Count', duaUrls.length);
+
         const allUrls = [...quranUrls, ...hadithUrls, ...duaUrls];
 
-        logger.raw('URL Generation Summary', {
-            totalUrls: allUrls.length,
-            quranUrls: quranUrls.size,
-            hadithUrls: hadithUrls.size,
-            duaUrls: duaUrls.size,
-            generationTime: `${(performance.now() - startTime).toFixed(2)}ms`
-        });
+        logger.success(`Sitemap generation completed in ${((performance.now() - startTime) / 1000).toFixed(2)}s`);
+        // Cache the result
+        cachedSitemap = allUrls;
+        cachedSitemapTimestamp = Date.now();
 
-        logger.success('Sitemap generation completed successfully');
-
-        return json(allUrls, {
-            headers: {
-                'Cache-Control': 'public, max-age=3600'
-            }
+        setHeaders({
+            'Cache-Control': 'public, max-age=3600',
+            'Content-Type': 'application/json'
         });
+        return json(allUrls);
+
     } catch (error) {
         logger.error('Sitemap generation failed', error);
-        logger.raw('Error Details', {
-            message: error.message,
-            stack: error.stack
-        });
-
-        return json({ error: 'Failed to generate sitemap' }, { status: 500 });
-    } finally {
-        logger.end('Sitemap generation process');
-        logger.separator();
+        return json(
+            { error: 'Failed to generate sitemap', details: error.message },
+            { status: 500 }
+        );
     }
 };
